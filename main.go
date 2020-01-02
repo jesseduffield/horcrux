@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jesseduffield/yaml"
+	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -91,8 +91,7 @@ func split(path string) error {
 
 	base64EncodedContent := base64.StdEncoding.EncodeToString(contentBytes)
 
-	// I need to split my file <total> ways
-	splitContent := splitSubN(base64EncodedContent, total)
+	splitContent := splitIntoEqualParts(base64EncodedContent, total)
 
 	originalFilename := filepath.Base(path)
 
@@ -236,6 +235,7 @@ func bind(dir string) error {
 	return err
 }
 
+// see https://www.thepolyglotdeveloper.com/2018/02/encrypt-decrypt-data-golang-application-crypto-packages/
 func encrypt(data []byte, key []byte) []byte {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -253,6 +253,7 @@ func encrypt(data []byte, key []byte) []byte {
 	return ciphertext
 }
 
+// see https://www.thepolyglotdeveloper.com/2018/02/encrypt-decrypt-data-golang-application-crypto-packages/
 func decrypt(data []byte, key []byte) []byte {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -286,7 +287,7 @@ func prompt(message string, args ...interface{}) string {
 	return strings.TrimSpace(input)
 }
 
-func splitSubN(s string, n int) []string {
+func splitIntoEqualParts(s string, n int) []string {
 	runes := bytes.Runes([]byte(s))
 	sliceLength := len(runes) / n
 	slices := make([]string, n)
