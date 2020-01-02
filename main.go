@@ -2,23 +2,19 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -53,13 +49,18 @@ func usage() {
 	log.Fatal("usage: `horcrux bind [<directory>]` | `horcrux split <filename>`")
 }
 
-type horcrux struct {
-	OriginalFilename string `yaml:"originalFilename"`
-	Timestamp        int64  `yaml:"timestamp"`
-	Index            int    `yaml:"index"`
-	Total            int    `yaml:"total"`
-	KeyFragment      string `yaml:"keyFragment"`
-	EncryptedContent string `yaml:"encryptedContent"`
+type horcruxHeader struct {
+	OriginalFilename string `json:"originalFilename"`
+	Timestamp        int64  `json:"timestamp"`
+	Index            int    `json:"index"`
+	Total            int    `json:"total"`
+	KeyFragment      []byte `json:"keyFragment"`
+}
+
+func generateKey() ([]byte, error) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	return key, err
 }
 
 func split(path string) error {
@@ -71,53 +72,108 @@ func split(path string) error {
 
 	timestamp := time.Now().Unix()
 
-	contentBytes, err := ioutil.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-
-	key := make([]byte, 32)
-	_, err = rand.Read(key)
-	if err != nil {
-		return err
-	}
-
-	contentBytes = encrypt(contentBytes, key)
-	base64EncodedContent := base64.StdEncoding.EncodeToString(contentBytes)
-	splitContent := splitIntoEqualParts(base64EncodedContent, total)
-	strKey := base64.StdEncoding.EncodeToString(key)
-	splitKey := splitIntoEqualParts(strKey, total)
-
 	originalFilename := filepath.Base(path)
 
-	for i := range splitContent {
+	key, err := generateKey()
+	if err != nil {
+		return err
+	}
+	splitKey := splitIntoEqualPartsBytes(key, total)
+
+	horcruxFiles := make([]*os.File, total)
+
+	for i := range horcruxFiles {
 		index := i + 1
 
-		h := horcrux{
+		h := horcruxHeader{
 			OriginalFilename: originalFilename,
 			Timestamp:        timestamp,
 			Index:            index,
 			Total:            total,
 			KeyFragment:      splitKey[i],
-			EncryptedContent: splitContent[i],
 		}
 
-		bytes, err := yaml.Marshal(&h)
+		bytes, err := json.Marshal(&h)
 		if err != nil {
 			log.Fatalf("error: %v", err)
 		}
 
-		fileContent := append([]byte(header(index, total)), bytes...)
-
 		originalFilenameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 		horcruxFilename := fmt.Sprintf("%s_%d_of_%d.horcrux", originalFilenameWithoutExt, index, total)
 		fmt.Printf("creating %s\n", horcruxFilename)
-		ioutil.WriteFile(horcruxFilename, fileContent, 0644)
+		horcruxFiles[i], err = os.OpenFile(horcruxFilename, os.O_WRONLY|os.O_CREATE, 0664)
+		if err != nil {
+			return err
+		}
+
+		horcruxFile := horcruxFiles[i]
+		defer horcruxFile.Close()
+		horcruxFile.WriteString(header(index, total))
+		horcruxFile.Write(bytes)
+		horcruxFile.WriteString("\n-- BODY --\n")
+	}
+
+	w := &demultiplexer{writers: horcruxFiles}
+	r := encrypt(file, key)
+
+	fmt.Println("about to copy")
+	_, err = io.Copy(w, r)
+	fmt.Println("copied")
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("Done!")
 
 	return nil
+}
+
+type demultiplexer struct {
+	writers     []*os.File
+	writerIndex int
+}
+
+func (d *demultiplexer) Write(p []byte) (int, error) {
+	totalN := 0
+	for _, b := range p {
+		n, err := d.writers[d.writerIndex].Write([]byte{b})
+		totalN += n
+		if err != nil {
+			return totalN, err
+		}
+		d.writerIndex++
+		if d.writerIndex > len(d.writers)-1 {
+			d.writerIndex = 0
+		}
+	}
+	return totalN, nil
+}
+
+type multiplexer struct {
+	readers     []*os.File
+	readerIndex int
+}
+
+func (m *multiplexer) Read(p []byte) (int, error) {
+	totalN := 0
+	for i := range p {
+		buf := make([]byte, 1)
+		n, err := m.readers[m.readerIndex].Read(buf)
+		totalN += n
+		if err != nil {
+			return totalN, err
+		}
+		p[i] = buf[0]
+		m.readerIndex++
+		if m.readerIndex > len(m.readers)-1 {
+			m.readerIndex = 0
+		}
+	}
+	return totalN, nil
 }
 
 func header(index int, total int) string {
@@ -127,6 +183,7 @@ func header(index int, total int) string {
 # IN ORDER TO RESURRECT THIS ORIGINAL FILE YOU MUST FIND THE OTHER %d HORCRUX(ES) AND THEN BIND THEM USING THE PROGRAM FOUND AT THE FOLLOWING URL
 # https://github.com/jesseduffield/horcrux
 
+-- HEADER --
 `, total, index, total-1)
 }
 
@@ -144,9 +201,9 @@ func bind(dir string) error {
 	var originalFilename string
 	var timestamp int64
 	var total int
-	var indices []int
 
-	horcruxes := []horcrux{}
+	horcruxes := []horcruxHeader{}
+	horcruxFiles := []*os.File{}
 
 	for _, filename := range filenames {
 		file, err := os.Open(filename)
@@ -154,31 +211,49 @@ func bind(dir string) error {
 			return err
 		}
 
-		reader := bufio.NewReader(file)
+		scanner := bufio.NewScanner(file)
+		header := &horcruxHeader{}
+		bytesBeforeBody := 0
+		for scanner.Scan() {
+			line := scanner.Text()
+			bytesBeforeBody += len(scanner.Bytes()) + 1
+			if line == "-- HEADER --" {
+				scanner.Scan()
+				bytesBeforeBody += len(scanner.Bytes()) + 1
+				headerLine := scanner.Bytes()
+				json.Unmarshal(headerLine, header)
+				scanner.Scan() // one more to get past the body line (TODO: just remove the body line)
+				bytesBeforeBody += len(scanner.Bytes()) + 1
+				break
+			}
+		}
+		if _, err := file.Seek(int64(bytesBeforeBody), io.SeekStart); err != nil {
+			return err
+		}
 
-		decoder := yaml.NewDecoder(reader)
-		var h horcrux
-		decoder.Decode(&h)
+		if header == nil {
+			return errors.New("could not find header in horcrux file")
+		}
 
-		for _, index := range indices {
-			if index == h.Index {
+		for _, horcrux := range horcruxes {
+			if horcrux.Index == header.Index {
 				// we've already obtained this horcrux so we'll skip this one
 				continue
 			}
 		}
-		indices = append(indices, h.Index)
 
 		if originalFilename == "" {
-			originalFilename = h.OriginalFilename
-			timestamp = h.Timestamp
-			total = h.Total
+			originalFilename = header.OriginalFilename
+			timestamp = header.Timestamp
+			total = header.Total
 		} else {
-			if h.OriginalFilename != originalFilename || h.Timestamp != timestamp {
+			if header.OriginalFilename != originalFilename || header.Timestamp != timestamp {
 				return errors.New("All horcruxes in the given directory must have the same original filename and timestamp.")
 			}
 		}
 
-		horcruxes = append(horcruxes, h)
+		horcruxes = append(horcruxes, *header)
+		horcruxFiles = append(horcruxFiles, file)
 	}
 
 	if total == 0 {
@@ -196,79 +271,63 @@ func bind(dir string) error {
 	}
 
 	// sort by index
-	orderedHorcruxes := make([]horcrux, len(horcruxes))
+	orderedHorcruxes := make([]horcruxHeader, len(horcruxes))
 	for _, h := range horcruxes {
 		orderedHorcruxes[h.Index-1] = h
 	}
 
-	// now we just need to concatenate the contents together, decode the base64 encoding, then decrypt everything with the first to the last key
-	encodedContent := ""
-	encodedKey := ""
-
+	// now we just need to concatenate the contents together then decrypt everything with the first to the last key
+	var key []byte
 	for _, h := range orderedHorcruxes {
-		encodedContent += h.EncryptedContent
-		encodedKey += h.KeyFragment
+		key = append(key, h.KeyFragment...)
 	}
 
-	decodedContentBytes, err := base64.StdEncoding.DecodeString(encodedContent)
-	if err != nil {
-		return err
-	}
+	r := &multiplexer{readers: horcruxFiles}
 
-	decodedKeyBytes, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return err
-	}
-
-	decodedContentBytes = decrypt(decodedContentBytes, decodedKeyBytes)
+	decryptReader := decrypt(r, key)
 
 	newFilename := originalFilename
 	if fileExists(originalFilename) {
 		newFilename = prompt("A file already exists named '%s'. Enter new file name: ", originalFilename)
 	}
 
-	if err := ioutil.WriteFile(newFilename, decodedContentBytes, 0644); err != nil {
+	newFile, err := os.OpenFile(newFilename, os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer newFile.Close()
+
+	_, err = io.Copy(newFile, decryptReader)
+	if err != nil {
 		return err
 	}
 
 	return err
 }
 
-// see https://www.thepolyglotdeveloper.com/2018/02/encrypt-decrypt-data-golang-application-crypto-packages/
-func encrypt(data []byte, key []byte) []byte {
+func encrypt(r io.Reader, key []byte) io.Reader {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic(err)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
-	}
-	ciphertext := gcm.Seal(nonce, nonce, data, nil)
-	return ciphertext
+
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(block, iv[:])
+
+	return cipher.StreamReader{S: stream, R: r}
 }
 
 // see https://www.thepolyglotdeveloper.com/2018/02/encrypt-decrypt-data-golang-application-crypto-packages/
-func decrypt(data []byte, key []byte) []byte {
+func decrypt(r io.Reader, key []byte) io.Reader {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		panic(err.Error())
+		panic(err)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-	nonceSize := gcm.NonceSize()
-	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		panic(err.Error())
-	}
-	return plaintext
+
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(block, iv[:])
+
+	return cipher.StreamReader{S: stream, R: r}
 }
 
 func fileExists(filename string) bool {
@@ -286,15 +345,14 @@ func prompt(message string, args ...interface{}) string {
 	return strings.TrimSpace(input)
 }
 
-func splitIntoEqualParts(s string, n int) []string {
-	runes := bytes.Runes([]byte(s))
-	sliceLength := len(runes) / n
-	slices := make([]string, n)
+func splitIntoEqualPartsBytes(s []byte, n int) [][]byte {
+	sliceLength := len(s) / n
+	slices := make([][]byte, n)
 	for i := range slices {
 		if i == n-1 {
-			slices[i] = string(runes[i*sliceLength:])
+			slices[i] = s[i*sliceLength:]
 		} else {
-			slices[i] = string(runes[i*sliceLength : (i+1)*sliceLength])
+			slices[i] = s[i*sliceLength : (i+1)*sliceLength]
 		}
 	}
 
