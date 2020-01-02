@@ -21,6 +21,7 @@ diary_1_of_5.horcrux
 diary_2_of_5.horcrux
 ...
 ```
+Now you just need to disperse the horcruxes around the house on various USBs or online locations and hope you can recall where they all are!
 
 ### Binding
 
