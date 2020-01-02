@@ -2,6 +2,9 @@
 
 Split your file into encrypted horcruxes so that you don't need to remember a passcode
 
+![](https://i.imgur.com/k48QVkF.png)
+
+
 ## How it works
 
 `horcrux` has two commands, `split` and `bind`.
