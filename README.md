@@ -2,11 +2,11 @@
 
 Split your file into encrypted horcruxes so that you don't need to remember a passcode
 
-# How it works
+## How it works
 
 `horcrux` has two commands, `split` and `bind`.
 
-## Splitting
+### Splitting
 
 If I have a file called `diary.txt` in my current directory I can call 
 ```
@@ -19,7 +19,7 @@ diary_2_of_5.horcrux
 ...
 ```
 
-## Binding
+### Binding
 
 To bind the horcruxes back into the original file just call
 ```
@@ -27,7 +27,7 @@ horcrux bind
 ```
 in the directory containing the horcruxes (or pass the directory as an argument).
 
-# Who this is for:
+## Who this is for:
 * People who need to encrypt a big sensitive file like a diary and don't expect to remember any passwords years from now (but who paradoxically will be capable of remembering where they've hidden each horcrux)
 * People named Tom Riddle
 
