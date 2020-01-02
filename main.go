@@ -131,7 +131,7 @@ func header(index int, total int) string {
 # IT IS ONE OF %d HORCRUXES THAT EACH CONTAIN PART OF AN ORIGINAL FILE.
 # THIS IS HORCRUX NUMBER %d.
 # IN ORDER TO RESURRECT THIS ORIGINAL FILE YOU MUST FIND THE OTHER %d HORCRUX(ES) AND THEN BIND THEM USING THE PROGRAM FOUND AT THE FOLLOWING URL
-# https://github/jesseduffield.com/horcrux
+# https://github.com/jesseduffield/horcrux
 
 `, total, index, total-1)
 }
