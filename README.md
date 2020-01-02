@@ -30,6 +30,18 @@ horcrux bind
 ```
 in the directory containing the horcruxes (or pass the directory as an argument).
 
+## Installation
+
+via homebrew:
+```
+brew install jesseduffield/horcrux/horcrux
+```
+
+via binary release 
+```
+
+```
+
 ## Who this is for:
 * People who need to encrypt a big sensitive file like a diary and don't expect to remember any passwords years from now (but who paradoxically will be capable of remembering where they've hidden each horcrux)
 * People named Tom Riddle
