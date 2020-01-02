@@ -58,7 +58,7 @@ type horcrux struct {
 	Timestamp        int64  `yaml:"timestamp"`
 	Index            int    `yaml:"index"`
 	Total            int    `yaml:"total"`
-	Key              string `yaml:"key"`
+	KeyFragment      string `yaml:"keyFragment"`
 	EncryptedContent string `yaml:"encryptedContent"`
 }
 
@@ -76,27 +76,21 @@ func split(path string) error {
 		return err
 	}
 
-	// I need <total> keys and I need to encrypt this thing with each key in sequence
-	keys := make([][]byte, total)
-
-	for i := range keys {
-		keys[i] = make([]byte, 32)
-		_, err = rand.Read(keys[i])
-		if err != nil {
-			return err
-		}
-
-		contentBytes = encrypt(contentBytes, keys[i])
+	key := make([]byte, 32)
+	_, err = rand.Read(key)
+	if err != nil {
+		return err
 	}
 
+	contentBytes = encrypt(contentBytes, key)
 	base64EncodedContent := base64.StdEncoding.EncodeToString(contentBytes)
-
 	splitContent := splitIntoEqualParts(base64EncodedContent, total)
+	strKey := base64.StdEncoding.EncodeToString(key)
+	splitKey := splitIntoEqualParts(strKey, total)
 
 	originalFilename := filepath.Base(path)
 
-	for i := range keys {
-		strKey := base64.StdEncoding.EncodeToString(keys[i])
+	for i := range splitContent {
 		index := i + 1
 
 		h := horcrux{
@@ -104,7 +98,7 @@ func split(path string) error {
 			Timestamp:        timestamp,
 			Index:            index,
 			Total:            total,
-			Key:              strKey,
+			KeyFragment:      splitKey[i],
 			EncryptedContent: splitContent[i],
 		}
 
@@ -187,6 +181,10 @@ func bind(dir string) error {
 		horcruxes = append(horcruxes, h)
 	}
 
+	if total == 0 {
+		return errors.New("No horcruxes in directory")
+	}
+
 	// check that we have the total.
 	if len(horcruxes) < total {
 		horcruxIndices := make([]string, len(horcruxes))
@@ -205,8 +203,11 @@ func bind(dir string) error {
 
 	// now we just need to concatenate the contents together, decode the base64 encoding, then decrypt everything with the first to the last key
 	encodedContent := ""
+	encodedKey := ""
+
 	for _, h := range orderedHorcruxes {
 		encodedContent += h.EncryptedContent
+		encodedKey += h.KeyFragment
 	}
 
 	decodedContentBytes, err := base64.StdEncoding.DecodeString(encodedContent)
@@ -214,14 +215,12 @@ func bind(dir string) error {
 		return err
 	}
 
-	// decrypt in reverse order to how we encrypted
-	for i := range orderedHorcruxes {
-		bytesKey, err := base64.StdEncoding.DecodeString(orderedHorcruxes[total-i-1].Key)
-		if err != nil {
-			return err
-		}
-		decodedContentBytes = decrypt(decodedContentBytes, bytesKey)
+	decodedKeyBytes, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return err
 	}
+
+	decodedContentBytes = decrypt(decodedContentBytes, decodedKeyBytes)
 
 	newFilename := originalFilename
 	if fileExists(originalFilename) {
