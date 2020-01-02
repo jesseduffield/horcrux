@@ -32,3 +32,4 @@ in the directory containing the horcruxes (or pass the directory as an argument)
 * People named Tom Riddle
 
 I have no idea if this program actually has practical use but it's a fun concept that I wanted to implement.
+I am aware this isn't quite 1:1 with how horcruxes work in the Harry Potter universe but I think it's close enough.
