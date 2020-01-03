@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"time"
 )
+
+const BYTE_QUOTA = 100
 
 func main() {
 	if len(os.Args) < 2 {
@@ -105,6 +108,7 @@ func split(path string) error {
 		originalFilenameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 		horcruxFilename := fmt.Sprintf("%s_%d_of_%d.horcrux", originalFilenameWithoutExt, index, total)
 		fmt.Printf("creating %s\n", horcruxFilename)
+		_ = os.Truncate(horcruxFilename, 0)
 		horcruxFiles[i], err = os.OpenFile(horcruxFilename, os.O_WRONLY|os.O_CREATE, 0664)
 		if err != nil {
 			return err
@@ -120,9 +124,7 @@ func split(path string) error {
 	w := &demultiplexer{writers: horcruxFiles}
 	r := encrypt(file, key)
 
-	fmt.Println("about to copy")
 	_, err = io.Copy(w, r)
-	fmt.Println("copied")
 	if err != nil {
 		return err
 	}
@@ -132,47 +134,78 @@ func split(path string) error {
 	return nil
 }
 
+func min(a int, b int) int {
+	if a > b {
+		return b
+	}
+	return a
+}
+
 type demultiplexer struct {
-	writers     []*os.File
-	writerIndex int
+	writers      []*os.File
+	writerIndex  int
+	bytesWritten int
+}
+
+func (d *demultiplexer) nextWriter() {
+	d.writerIndex++
+	if d.writerIndex > len(d.writers)-1 {
+		d.writerIndex = 0
+	}
+	d.bytesWritten = 0
 }
 
 func (d *demultiplexer) Write(p []byte) (int, error) {
 	totalN := 0
-	for _, b := range p {
-		n, err := d.writers[d.writerIndex].Write([]byte{b})
+	for totalN < len(p) {
+		remainingBytes := len(p) - totalN
+		remainingBytesForWriter := BYTE_QUOTA - d.bytesWritten
+		n, err := d.writers[d.writerIndex].Write(p[totalN : totalN+min(remainingBytesForWriter, remainingBytes)])
+		d.bytesWritten += n
 		totalN += n
 		if err != nil {
 			return totalN, err
 		}
-		d.writerIndex++
-		if d.writerIndex > len(d.writers)-1 {
-			d.writerIndex = 0
+		if remainingBytesForWriter-n <= 0 {
+			d.nextWriter()
 		}
 	}
+
 	return totalN, nil
 }
 
 type multiplexer struct {
 	readers     []*os.File
 	readerIndex int
+	bytesRead   int
+}
+
+func (m *multiplexer) nextReader() {
+	m.readerIndex++
+	if m.readerIndex > len(m.readers)-1 {
+		m.readerIndex = 0
+	}
+	m.bytesRead = 0
 }
 
 func (m *multiplexer) Read(p []byte) (int, error) {
 	totalN := 0
-	for i := range p {
-		buf := make([]byte, 1)
+	for totalN < len(p) {
+		remainingBytes := len(p) - totalN
+		remainingBytesForReader := BYTE_QUOTA - m.bytesRead
+		buf := make([]byte, min(remainingBytes, remainingBytesForReader))
 		n, err := m.readers[m.readerIndex].Read(buf)
+		p = append(p[0:totalN], buf[0:n]...)
 		totalN += n
+		m.bytesRead += n
 		if err != nil {
 			return totalN, err
 		}
-		p[i] = buf[0]
-		m.readerIndex++
-		if m.readerIndex > len(m.readers)-1 {
-			m.readerIndex = 0
+		if remainingBytesForReader-n <= 0 {
+			m.nextReader()
 		}
 	}
+
 	return totalN, nil
 }
 
@@ -191,12 +224,16 @@ func bind(dir string) error {
 	// get all the horcrux files within the directory
 	filenames := []string{}
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if filepath.Ext(path) == ".horcrux" {
-			filenames = append(filenames, path)
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if filepath.Ext(file.Name()) == ".horcrux" {
+			filenames = append(filenames, file.Name())
 		}
-		return nil
-	})
+	}
 
 	var originalFilename string
 	var timestamp int64
@@ -207,6 +244,7 @@ func bind(dir string) error {
 
 	for _, filename := range filenames {
 		file, err := os.Open(filename)
+		defer file.Close()
 		if err != nil {
 			return err
 		}
@@ -290,6 +328,8 @@ func bind(dir string) error {
 	if fileExists(originalFilename) {
 		newFilename = prompt("A file already exists named '%s'. Enter new file name: ", originalFilename)
 	}
+
+	_ = os.Truncate(newFilename, 0)
 
 	newFile, err := os.OpenFile(newFilename, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
