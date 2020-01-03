@@ -16,9 +16,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-const BYTE_QUOTA = 100
+	"github.com/jesseduffield/horcrux/pkg/multiplexing"
+	"github.com/jesseduffield/horcrux/pkg/shamir"
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -57,6 +58,7 @@ type horcruxHeader struct {
 	Timestamp        int64  `json:"timestamp"`
 	Index            int    `json:"index"`
 	Total            int    `json:"total"`
+	Threshold        int    `json:"threshold"`
 	KeyFragment      []byte `json:"keyFragment"`
 }
 
@@ -67,8 +69,24 @@ func generateKey() ([]byte, error) {
 }
 
 func split(path string) error {
-	totalStr := prompt("How many horcruxes do you want to split this file into? (0-99): ")
+	totalStr := prompt("How many horcruxes do you want to split this file into? (1-99): ")
 	total, err := strconv.Atoi(totalStr)
+	if err != nil {
+		return err
+	}
+
+	thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (1-99): ")
+	threshold, err := strconv.Atoi(thresholdStr)
+	if err != nil {
+		return err
+	}
+
+	key, err := generateKey()
+	if err != nil {
+		return err
+	}
+
+	byteArrs, err := shamir.Split(key, total, threshold)
 	if err != nil {
 		return err
 	}
@@ -88,20 +106,13 @@ func split(path string) error {
 	for i := range horcruxFiles {
 		index := i + 1
 
-		key, err := generateKey()
-		if err != nil {
-			return err
-		}
-
-		// we're wrapping our reader in an encryption reader for each horcrux's key
-		r = cryptoReader(r, key)
-
 		h := horcruxHeader{
 			OriginalFilename: originalFilename,
 			Timestamp:        timestamp,
 			Index:            index,
 			Total:            total,
-			KeyFragment:      key,
+			KeyFragment:      byteArrs[i],
+			Threshold:        threshold,
 		}
 
 		bytes, err := json.Marshal(&h)
@@ -125,7 +136,19 @@ func split(path string) error {
 		horcruxFile.WriteString("\n-- BODY --\n")
 	}
 
-	w := &demultiplexer{writers: horcruxFiles}
+	r = cryptoReader(r, key)
+
+	writers := make([]io.Writer, len(horcruxFiles))
+	for i := range writers {
+		writers[i] = horcruxFiles[i]
+	}
+
+	var w io.Writer
+	if threshold == total {
+		w = &multiplexing.Demultiplexer{Writers: horcruxFiles} // TODO: use the writers here too
+	} else {
+		w = io.MultiWriter(writers...)
+	}
 
 	_, err = io.Copy(w, r)
 	if err != nil {
@@ -135,81 +158,6 @@ func split(path string) error {
 	fmt.Println("Done!")
 
 	return nil
-}
-
-func min(a int, b int) int {
-	if a > b {
-		return b
-	}
-	return a
-}
-
-type demultiplexer struct {
-	writers      []*os.File
-	writerIndex  int
-	bytesWritten int
-}
-
-func (d *demultiplexer) nextWriter() {
-	d.writerIndex++
-	if d.writerIndex > len(d.writers)-1 {
-		d.writerIndex = 0
-	}
-	d.bytesWritten = 0
-}
-
-func (d *demultiplexer) Write(p []byte) (int, error) {
-	totalN := 0
-	for totalN < len(p) {
-		remainingBytes := len(p) - totalN
-		remainingBytesForWriter := BYTE_QUOTA - d.bytesWritten
-		n, err := d.writers[d.writerIndex].Write(p[totalN : totalN+min(remainingBytesForWriter, remainingBytes)])
-		d.bytesWritten += n
-		totalN += n
-		if err != nil {
-			return totalN, err
-		}
-		if remainingBytesForWriter-n <= 0 {
-			d.nextWriter()
-		}
-	}
-
-	return totalN, nil
-}
-
-type multiplexer struct {
-	readers     []*os.File
-	readerIndex int
-	bytesRead   int
-}
-
-func (m *multiplexer) nextReader() {
-	m.readerIndex++
-	if m.readerIndex > len(m.readers)-1 {
-		m.readerIndex = 0
-	}
-	m.bytesRead = 0
-}
-
-func (m *multiplexer) Read(p []byte) (int, error) {
-	totalN := 0
-	for totalN < len(p) {
-		remainingBytes := len(p) - totalN
-		remainingBytesForReader := BYTE_QUOTA - m.bytesRead
-		buf := make([]byte, min(remainingBytes, remainingBytesForReader))
-		n, err := m.readers[m.readerIndex].Read(buf)
-		p = append(p[0:totalN], buf[0:n]...)
-		totalN += n
-		m.bytesRead += n
-		if err != nil {
-			return totalN, err
-		}
-		if remainingBytesForReader-n <= 0 {
-			m.nextReader()
-		}
-	}
-
-	return totalN, nil
 }
 
 func header(index int, total int) string {
@@ -241,6 +189,7 @@ func bind(dir string) error {
 	var originalFilename string
 	var timestamp int64
 	var total int
+	var threshold int
 
 	horcruxes := []horcruxHeader{}
 	horcruxFiles := []*os.File{}
@@ -287,6 +236,7 @@ func bind(dir string) error {
 			originalFilename = header.OriginalFilename
 			timestamp = header.Timestamp
 			total = header.Total
+			threshold = header.Threshold
 		} else {
 			if header.OriginalFilename != originalFilename || header.Timestamp != timestamp {
 				return errors.New("All horcruxes in the given directory must have the same original filename and timestamp.")
@@ -301,27 +251,35 @@ func bind(dir string) error {
 		return errors.New("No horcruxes in directory")
 	}
 
-	// check that we have the total.
-	if len(horcruxes) < total {
-		horcruxIndices := make([]string, len(horcruxes))
-		for i, h := range horcruxes {
-			horcruxIndices[i] = strconv.Itoa(h.Index)
+	// check that we have the threshold.
+	if len(horcruxes) < threshold {
+		return errors.New(fmt.Sprintf("You do not have all the required horcruxes. There are %d required to resurrect the original file. You only have %d", threshold, len(horcruxes)))
+	}
+
+	keyFragments := make([][]byte, len(horcruxes))
+	for i := range keyFragments {
+		keyFragments[i] = horcruxes[i].KeyFragment
+	}
+
+	key, err := shamir.Combine(keyFragments)
+	if err != nil {
+		return err
+	}
+
+	var r io.Reader
+	if total == threshold {
+		// sort by index
+		orderedHorcruxes := make([]horcruxHeader, len(horcruxes))
+		for _, h := range horcruxes {
+			orderedHorcruxes[h.Index-1] = h
 		}
 
-		return errors.New(fmt.Sprintf("You do not have all the required horcruxes. There are %d in total. You only have horcrux(es) %s", total, strings.Join(horcruxIndices, ",")))
+		r = &multiplexing.Multiplexer{Readers: horcruxFiles}
+	} else {
+		r = horcruxFiles[0] // arbitrarily read from the first horcrux: they all contain the same contents
 	}
 
-	// sort by index
-	orderedHorcruxes := make([]horcruxHeader, len(horcruxes))
-	for _, h := range horcruxes {
-		orderedHorcruxes[h.Index-1] = h
-	}
-
-	// now we just need to concatenate the contents together then decrypt everything with the first to the last key
-	var r io.Reader = &multiplexer{readers: horcruxFiles}
-	for i := range orderedHorcruxes {
-		r = cryptoReader(r, orderedHorcruxes[len(orderedHorcruxes)-1-i].KeyFragment)
-	}
+	r = cryptoReader(r, key)
 
 	newFilename := originalFilename
 	if fileExists(originalFilename) {
@@ -369,18 +327,4 @@ func prompt(message string, args ...interface{}) string {
 	fmt.Printf(message, args...)
 	input, _ := reader.ReadString('\n')
 	return strings.TrimSpace(input)
-}
-
-func splitIntoEqualPartsBytes(s []byte, n int) [][]byte {
-	sliceLength := len(s) / n
-	slices := make([][]byte, n)
-	for i := range slices {
-		if i == n-1 {
-			slices[i] = s[i*sliceLength:]
-		} else {
-			slices[i] = s[i*sliceLength : (i+1)*sliceLength]
-		}
-	}
-
-	return slices
 }
