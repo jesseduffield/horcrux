@@ -79,7 +79,7 @@ func split(path string) error {
 	threshold := *thresholdPtr
 
 	if total == 0 {
-		totalStr := prompt("How many horcruxes do you want to split this file into? (1-99): ")
+		totalStr := prompt("How many horcruxes do you want to split this file into? (2-99): ")
 		var err error
 		total, err = strconv.Atoi(totalStr)
 		if err != nil {
@@ -88,7 +88,7 @@ func split(path string) error {
 	}
 
 	if threshold == 0 {
-		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (1-99): ")
+		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (2-99): ")
 		var err error
 		threshold, err = strconv.Atoi(thresholdStr)
 		if err != nil {
