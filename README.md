@@ -15,7 +15,7 @@ If I have a file called `diary.txt` in my current directory I can call
 ```
 horcrux split diary.txt
 ```
-and it will prompt me for how many horcruxes I want. If I want 5 horcruxes, it will encrypt my `diary.txt` file with 5 different secret keys, and then split the encrypted result into 5 equal parts to be stored in `.horcrux` files along with the 5 secret keys. This means that you will need all five horcruxes to put the thing back together again and decrypt it. The horcrux files will be created like so:
+and it will prompt me for how many horcruxes I want, and how many will be needed to resurrect the original file. For example I might want 5 horcruxes with the ability to resurrect the file if I have any 3. The horcrux files will be created like so:
 ```
 diary_1_of_5.horcrux
 diary_2_of_5.horcrux
@@ -41,8 +41,20 @@ brew install jesseduffield/horcrux/horcrux
 via [binary release](https://github.com/jesseduffield/horcrux/releases)
 
 ## Who this is for:
-* People who need to encrypt a big sensitive file like a diary and don't expect to remember any passwords years from now (but who paradoxically will be capable of remembering where they've hidden each horcrux)
+* People who need to encrypt a big sensitive file like a diary and don't expect to remember any passwords years from now (but who paradoxically will be capable of remembering where they've hidden their horcruxes)
+* People who want to transmit files across multiple channels to substantially reduce the ability for an attacker to intercept
 * People named Tom Riddle
 
-I have no idea if this program actually has practical use but it's a fun concept that I wanted to implement.
-I am aware this isn't quite 1:1 with how horcruxes work in the Harry Potter universe but I think it's close enough.
+## FAQ
+Q) This isn't really in line with how horcruxes work in the harry potter universe!
+
+A) It's pretty close! You can't allow any one horcrux to be used to resurrect the original file (and why would you that would be useless) but you can allow two horcruxes to do it (so only off by one). Checkmate HP fans.
+
+Q) How does this work?
+
+A) This uses the (Shamir Secret Sharing Scheme)[https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing] to break an encryption key into parts that can be recombined to create the original key, but only requiring a certain threshold to do so. I've adapted Hashicorp's implementation from their (vault repo)[https://github.com/hashicorp/vault]
+
+## Alternatives
+
+* (ssss)[http://point-at-infinity.org/ssss/]. Works for keys but (as far as I know) not files themselves.
+* horcrux[https://github.com/kndyry/horcrux]. Looks like somebody beat me to both the name and concept, however this repo doesn't support thresholds of horcruxes
