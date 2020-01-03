@@ -122,7 +122,7 @@ func split(path string) error {
 	}
 
 	w := &demultiplexer{writers: horcruxFiles}
-	r := encrypt(file, key)
+	r := cryptoReader(file, key)
 
 	_, err = io.Copy(w, r)
 	if err != nil {
@@ -322,7 +322,7 @@ func bind(dir string) error {
 
 	r := &multiplexer{readers: horcruxFiles}
 
-	decryptReader := decrypt(r, key)
+	decryptReader := cryptoReader(r, key)
 
 	newFilename := originalFilename
 	if fileExists(originalFilename) {
@@ -345,20 +345,7 @@ func bind(dir string) error {
 	return err
 }
 
-func encrypt(r io.Reader, key []byte) io.Reader {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-
-	var iv [aes.BlockSize]byte
-	stream := cipher.NewOFB(block, iv[:])
-
-	return cipher.StreamReader{S: stream, R: r}
-}
-
-// see https://www.thepolyglotdeveloper.com/2018/02/encrypt-decrypt-data-golang-application-crypto-packages/
-func decrypt(r io.Reader, key []byte) io.Reader {
+func cryptoReader(r io.Reader, key []byte) io.Reader {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic(err)
