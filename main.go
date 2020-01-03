@@ -37,9 +37,8 @@ func main() {
 	if len(os.Args) < 2 {
 		usage()
 	}
-	switch os.Args[len(os.Args)-2] {
 
-	case "bind":
+	if os.Args[1] == "bind" {
 		var dir string
 		if len(os.Args) == 2 {
 			dir = "."
@@ -49,7 +48,10 @@ func main() {
 		if err := bind(dir); err != nil {
 			log.Fatal(err)
 		}
-	case "split":
+		return
+	}
+
+	if os.Args[len(os.Args)-2] == "split" {
 		if len(os.Args) == 2 {
 			usage()
 		}
@@ -57,9 +59,10 @@ func main() {
 		if err := split(path); err != nil {
 			log.Fatal(err)
 		}
-	default:
-		usage()
+		return
 	}
+
+	usage()
 }
 
 func usage() {
@@ -234,7 +237,7 @@ func bind(dir string) error {
 			}
 		}
 
-		if len(headers) > 0 && currentHeader.OriginalFilename != headers[0].OriginalFilename || currentHeader.Timestamp != headers[0].Timestamp {
+		if len(headers) > 0 && (currentHeader.OriginalFilename != headers[0].OriginalFilename || currentHeader.Timestamp != headers[0].Timestamp) {
 			return errors.New("All horcruxes in the given directory must have the same original filename and timestamp.")
 		}
 
