@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -25,7 +26,8 @@ func main() {
 	if len(os.Args) < 2 {
 		usage()
 	}
-	switch os.Args[1] {
+	switch os.Args[len(os.Args)-2] {
+
 	case "bind":
 		var dir string
 		if len(os.Args) == 2 {
@@ -40,7 +42,7 @@ func main() {
 		if len(os.Args) == 2 {
 			usage()
 		}
-		path := os.Args[2]
+		path := os.Args[len(os.Args)-1]
 		if err := split(path); err != nil {
 			log.Fatal(err)
 		}
@@ -50,7 +52,7 @@ func main() {
 }
 
 func usage() {
-	log.Fatal("usage: `horcrux bind [<directory>]` | `horcrux split <filename>`")
+	log.Fatal("usage: `horcrux bind [<directory>]` | `horcrux [-t] [-n] split <filename>`")
 }
 
 type horcruxHeader struct {
@@ -69,16 +71,29 @@ func generateKey() ([]byte, error) {
 }
 
 func split(path string) error {
-	totalStr := prompt("How many horcruxes do you want to split this file into? (1-99): ")
-	total, err := strconv.Atoi(totalStr)
-	if err != nil {
-		return err
+	totalPtr := flag.Int("n", 0, "number of horcruxes to make")
+	thresholdPtr := flag.Int("t", 0, "number of horcruxes required to resurrect the original file")
+	flag.Parse()
+
+	total := *totalPtr
+	threshold := *thresholdPtr
+
+	if total == 0 {
+		totalStr := prompt("How many horcruxes do you want to split this file into? (1-99): ")
+		var err error
+		total, err = strconv.Atoi(totalStr)
+		if err != nil {
+			return err
+		}
 	}
 
-	thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (1-99): ")
-	threshold, err := strconv.Atoi(thresholdStr)
-	if err != nil {
-		return err
+	if threshold == 0 {
+		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (1-99): ")
+		var err error
+		threshold, err = strconv.Atoi(thresholdStr)
+		if err != nil {
+			return err
+		}
 	}
 
 	key, err := generateKey()
