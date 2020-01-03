@@ -81,23 +81,27 @@ func split(path string) error {
 	}
 	originalFilename := filepath.Base(path)
 
-	key, err := generateKey()
-	if err != nil {
-		return err
-	}
-	splitKey := splitIntoEqualPartsBytes(key, total)
-
 	horcruxFiles := make([]*os.File, total)
+
+	var r io.Reader = file
 
 	for i := range horcruxFiles {
 		index := i + 1
+
+		key, err := generateKey()
+		if err != nil {
+			return err
+		}
+
+		// we're wrapping our reader in an encryption reader for each horcrux's key
+		r = cryptoReader(r, key)
 
 		h := horcruxHeader{
 			OriginalFilename: originalFilename,
 			Timestamp:        timestamp,
 			Index:            index,
 			Total:            total,
-			KeyFragment:      splitKey[i],
+			KeyFragment:      key,
 		}
 
 		bytes, err := json.Marshal(&h)
@@ -122,7 +126,6 @@ func split(path string) error {
 	}
 
 	w := &demultiplexer{writers: horcruxFiles}
-	r := cryptoReader(file, key)
 
 	_, err = io.Copy(w, r)
 	if err != nil {
@@ -315,14 +318,10 @@ func bind(dir string) error {
 	}
 
 	// now we just need to concatenate the contents together then decrypt everything with the first to the last key
-	var key []byte
-	for _, h := range orderedHorcruxes {
-		key = append(key, h.KeyFragment...)
+	var r io.Reader = &multiplexer{readers: horcruxFiles}
+	for i := range orderedHorcruxes {
+		r = cryptoReader(r, orderedHorcruxes[len(orderedHorcruxes)-1-i].KeyFragment)
 	}
-
-	r := &multiplexer{readers: horcruxFiles}
-
-	decryptReader := cryptoReader(r, key)
 
 	newFilename := originalFilename
 	if fileExists(originalFilename) {
@@ -337,7 +336,7 @@ func bind(dir string) error {
 	}
 	defer newFile.Close()
 
-	_, err = io.Copy(newFile, decryptReader)
+	_, err = io.Copy(newFile, r)
 	if err != nil {
 		return err
 	}
