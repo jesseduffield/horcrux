@@ -22,7 +22,18 @@ import (
 	"github.com/jesseduffield/horcrux/pkg/shamir"
 )
 
+type horcruxHeader struct {
+	OriginalFilename string `json:"originalFilename"`
+	Timestamp        int64  `json:"timestamp"`
+	Index            int    `json:"index"`
+	Total            int    `json:"total"`
+	Threshold        int    `json:"threshold"`
+	KeyFragment      []byte `json:"keyFragment"`
+}
+
 func main() {
+	// I'd use `flaggy` but I like the idea of this repo having no dependencies
+	// Unfortunately that means I'm awkwardly making use of the standard flag package
 	if len(os.Args) < 2 {
 		usage()
 	}
@@ -55,15 +66,6 @@ func usage() {
 	log.Fatal("usage: `horcrux bind [<directory>]` | `horcrux [-t] [-n] split <filename>`\n-n: number of horcruxes to make\n-t: number of horcruxes required to resurrect the original file\nexample: horcrux -t 3 -n 5 split diary.txt")
 }
 
-type horcruxHeader struct {
-	OriginalFilename string `json:"originalFilename"`
-	Timestamp        int64  `json:"timestamp"`
-	Index            int    `json:"index"`
-	Total            int    `json:"total"`
-	Threshold        int    `json:"threshold"`
-	KeyFragment      []byte `json:"keyFragment"`
-}
-
 func generateKey() ([]byte, error) {
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
@@ -71,37 +73,14 @@ func generateKey() ([]byte, error) {
 }
 
 func split(path string) error {
-	totalPtr := flag.Int("n", 0, "number of horcruxes to make")
-	thresholdPtr := flag.Int("t", 0, "number of horcruxes required to resurrect the original file")
-	flag.Parse()
-
-	total := *totalPtr
-	threshold := *thresholdPtr
-
-	if total == 0 {
-		totalStr := prompt("How many horcruxes do you want to split this file into? (2-99): ")
-		var err error
-		total, err = strconv.Atoi(totalStr)
-		if err != nil {
-			return err
-		}
-	}
-
-	if threshold == 0 {
-		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (2-99): ")
-		var err error
-		threshold, err = strconv.Atoi(thresholdStr)
-		if err != nil {
-			return err
-		}
-	}
+	total, threshold, err := obtainTotalAndThreshold()
 
 	key, err := generateKey()
 	if err != nil {
 		return err
 	}
 
-	byteArrs, err := shamir.Split(key, total, threshold)
+	keyFragments, err := shamir.Split(key, total, threshold)
 	if err != nil {
 		return err
 	}
@@ -116,56 +95,59 @@ func split(path string) error {
 
 	horcruxFiles := make([]*os.File, total)
 
-	var r io.Reader = file
-
 	for i := range horcruxFiles {
 		index := i + 1
 
-		h := horcruxHeader{
+		headerBytes, err := json.Marshal(&horcruxHeader{
 			OriginalFilename: originalFilename,
 			Timestamp:        timestamp,
 			Index:            index,
 			Total:            total,
-			KeyFragment:      byteArrs[i],
+			KeyFragment:      keyFragments[i],
 			Threshold:        threshold,
-		}
-
-		bytes, err := json.Marshal(&h)
+		})
 		if err != nil {
-			log.Fatalf("error: %v", err)
+			return err
 		}
 
 		originalFilenameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 		horcruxFilename := fmt.Sprintf("%s_%d_of_%d.horcrux", originalFilenameWithoutExt, index, total)
 		fmt.Printf("creating %s\n", horcruxFilename)
+
+		// clearing file in case it already existed
 		_ = os.Truncate(horcruxFilename, 0)
-		horcruxFiles[i], err = os.OpenFile(horcruxFilename, os.O_WRONLY|os.O_CREATE, 0664)
+
+		horcruxFile, err := os.OpenFile(horcruxFilename, os.O_WRONLY|os.O_CREATE, 0644)
 		if err != nil {
 			return err
 		}
-
-		horcruxFile := horcruxFiles[i]
 		defer horcruxFile.Close()
-		horcruxFile.WriteString(header(index, total))
-		horcruxFile.Write(bytes)
-		horcruxFile.WriteString("\n-- BODY --\n")
+
+		horcruxFile.WriteString(header(index, total, headerBytes))
+
+		horcruxFiles[i] = horcruxFile
 	}
 
-	r = cryptoReader(r, key)
+	// wrap file reader in an encryption stream
+	var fileReader io.Reader = file
+	reader := cryptoReader(fileReader, key)
 
-	writers := make([]io.Writer, len(horcruxFiles))
-	for i := range writers {
-		writers[i] = horcruxFiles[i]
-	}
-
-	var w io.Writer
+	var writer io.Writer
 	if threshold == total {
-		w = &multiplexing.Demultiplexer{Writers: horcruxFiles} // TODO: use the writers here too
+		// because we need all horcruxes to reconstitute the original file,
+		// we'll use a multiplexer to divide the encrypted content evenly between
+		// the horcruxes
+		writer = &multiplexing.Demultiplexer{Writers: horcruxFiles}
 	} else {
-		w = io.MultiWriter(writers...)
+		writers := make([]io.Writer, len(horcruxFiles))
+		for i := range writers {
+			writers[i] = horcruxFiles[i]
+		}
+
+		writer = io.MultiWriter(writers...)
 	}
 
-	_, err = io.Copy(w, r)
+	_, err = io.Copy(writer, reader)
 	if err != nil {
 		return err
 	}
@@ -175,7 +157,36 @@ func split(path string) error {
 	return nil
 }
 
-func header(index int, total int) string {
+func obtainTotalAndThreshold() (int, int, error) {
+	totalPtr := flag.Int("n", 0, "number of horcruxes to make")
+	thresholdPtr := flag.Int("t", 0, "number of horcruxes required to resurrect the original file")
+	flag.Parse()
+
+	total := *totalPtr
+	threshold := *thresholdPtr
+
+	if total == 0 {
+		totalStr := prompt("How many horcruxes do you want to split this file into? (2-99): ")
+		var err error
+		total, err = strconv.Atoi(totalStr)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	if threshold == 0 {
+		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (2-99): ")
+		var err error
+		threshold, err = strconv.Atoi(thresholdStr)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	return total, threshold, nil
+}
+
+func header(index int, total int, headerBytes []byte) string {
 	return fmt.Sprintf(`# THIS FILE IS A HORCRUX.
 # IT IS ONE OF %d HORCRUXES THAT EACH CONTAIN PART OF AN ORIGINAL FILE.
 # THIS IS HORCRUX NUMBER %d.
@@ -183,30 +194,25 @@ func header(index int, total int) string {
 # https://github.com/jesseduffield/horcrux
 
 -- HEADER --
-`, total, index, total-1)
+%s
+-- BODY --
+`, total, index, total-1, headerBytes)
 }
 
 func bind(dir string) error {
-	// get all the horcrux files within the directory
-	filenames := []string{}
-
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 
+	filenames := []string{}
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".horcrux" {
 			filenames = append(filenames, file.Name())
 		}
 	}
 
-	var originalFilename string
-	var timestamp int64
-	var total int
-	var threshold int
-
-	horcruxes := []horcruxHeader{}
+	headers := []horcruxHeader{}
 	horcruxFiles := []*os.File{}
 
 	for _, filename := range filenames {
@@ -216,64 +222,35 @@ func bind(dir string) error {
 			return err
 		}
 
-		scanner := bufio.NewScanner(file)
-		header := &horcruxHeader{}
-		bytesBeforeBody := 0
-		for scanner.Scan() {
-			line := scanner.Text()
-			bytesBeforeBody += len(scanner.Bytes()) + 1
-			if line == "-- HEADER --" {
-				scanner.Scan()
-				bytesBeforeBody += len(scanner.Bytes()) + 1
-				headerLine := scanner.Bytes()
-				json.Unmarshal(headerLine, header)
-				scanner.Scan() // one more to get past the body line (TODO: just remove the body line)
-				bytesBeforeBody += len(scanner.Bytes()) + 1
-				break
-			}
-		}
-		if _, err := file.Seek(int64(bytesBeforeBody), io.SeekStart); err != nil {
+		currentHeader, err := getHeaderFromHorcruxFile(file)
+		if err != nil {
 			return err
 		}
 
-		if header == nil {
-			return errors.New("could not find header in horcrux file")
-		}
-
-		for _, horcrux := range horcruxes {
-			if horcrux.Index == header.Index {
-				// we've already obtained this horcrux so we'll skip this one
+		for _, header := range headers {
+			if header.Index == currentHeader.Index {
+				// we've already obtained this horcrux so we'll skip this instance
 				continue
 			}
 		}
 
-		if originalFilename == "" {
-			originalFilename = header.OriginalFilename
-			timestamp = header.Timestamp
-			total = header.Total
-			threshold = header.Threshold
-		} else {
-			if header.OriginalFilename != originalFilename || header.Timestamp != timestamp {
-				return errors.New("All horcruxes in the given directory must have the same original filename and timestamp.")
-			}
+		if len(headers) > 0 && currentHeader.OriginalFilename != headers[0].OriginalFilename || currentHeader.Timestamp != headers[0].Timestamp {
+			return errors.New("All horcruxes in the given directory must have the same original filename and timestamp.")
 		}
 
-		horcruxes = append(horcruxes, *header)
+		headers = append(headers, *currentHeader)
 		horcruxFiles = append(horcruxFiles, file)
 	}
 
-	if total == 0 {
+	if len(headers) == 0 {
 		return errors.New("No horcruxes in directory")
+	} else if len(headers) < headers[0].Threshold {
+		return errors.New(fmt.Sprintf("You do not have all the required horcruxes. There are %d required to resurrect the original file. You only have %d", headers[0].Threshold, len(headers)))
 	}
 
-	// check that we have the threshold.
-	if len(horcruxes) < threshold {
-		return errors.New(fmt.Sprintf("You do not have all the required horcruxes. There are %d required to resurrect the original file. You only have %d", threshold, len(horcruxes)))
-	}
-
-	keyFragments := make([][]byte, len(horcruxes))
+	keyFragments := make([][]byte, len(headers))
 	for i := range keyFragments {
-		keyFragments[i] = horcruxes[i].KeyFragment
+		keyFragments[i] = headers[i].KeyFragment
 	}
 
 	key, err := shamir.Combine(keyFragments)
@@ -281,24 +258,24 @@ func bind(dir string) error {
 		return err
 	}
 
-	var r io.Reader
-	if total == threshold {
+	var fileReader io.Reader
+	if headers[0].Total == headers[0].Threshold {
 		// sort by index
-		orderedHorcruxes := make([]horcruxHeader, len(horcruxes))
-		for _, h := range horcruxes {
-			orderedHorcruxes[h.Index-1] = h
+		orderedHorcruxFiles := make([]*os.File, len(horcruxFiles))
+		for i, h := range horcruxFiles {
+			orderedHorcruxFiles[headers[i].Index-1] = h
 		}
 
-		r = &multiplexing.Multiplexer{Readers: horcruxFiles}
+		fileReader = &multiplexing.Multiplexer{Readers: orderedHorcruxFiles}
 	} else {
-		r = horcruxFiles[0] // arbitrarily read from the first horcrux: they all contain the same contents
+		fileReader = horcruxFiles[0] // arbitrarily read from the first horcrux: they all contain the same contents
 	}
 
-	r = cryptoReader(r, key)
+	reader := cryptoReader(fileReader, key)
 
-	newFilename := originalFilename
-	if fileExists(originalFilename) {
-		newFilename = prompt("A file already exists named '%s'. Enter new file name: ", originalFilename)
+	newFilename := headers[0].OriginalFilename
+	if fileExists(newFilename) {
+		newFilename = prompt("A file already exists named '%s'. Enter new file name: ", newFilename)
 	}
 
 	_ = os.Truncate(newFilename, 0)
@@ -309,12 +286,43 @@ func bind(dir string) error {
 	}
 	defer newFile.Close()
 
-	_, err = io.Copy(newFile, r)
+	_, err = io.Copy(newFile, reader)
 	if err != nil {
 		return err
 	}
 
 	return err
+}
+
+// this function gets the header from the horcrux file and ensures that we leave
+// the file with its read pointer at the start of the encrypted content
+// so that we can later directly read from that point
+// yes this is a side effect, no I'm not proud of it.
+func getHeaderFromHorcruxFile(file *os.File) (*horcruxHeader, error) {
+	currentHeader := &horcruxHeader{}
+	scanner := bufio.NewScanner(file)
+	bytesBeforeBody := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		bytesBeforeBody += len(scanner.Bytes()) + 1
+		if line == "-- HEADER --" {
+			scanner.Scan()
+			bytesBeforeBody += len(scanner.Bytes()) + 1
+			headerLine := scanner.Bytes()
+			json.Unmarshal(headerLine, currentHeader)
+			scanner.Scan() // one more to get past the body line
+			bytesBeforeBody += len(scanner.Bytes()) + 1
+			break
+		}
+	}
+	if _, err := file.Seek(int64(bytesBeforeBody), io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	if currentHeader == nil {
+		return nil, errors.New("could not find header in horcrux file")
+	}
+	return currentHeader, nil
 }
 
 func cryptoReader(r io.Reader, key []byte) io.Reader {
