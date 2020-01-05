@@ -2,7 +2,7 @@
 
 Split your file into encrypted horcruxes so that you don't need to remember a passcode
 
-![](https://i.imgur.com/k48QVkF.png)
+![](https://i.imgur.com/TijN4YP.png)
 
 
 ## How it works
