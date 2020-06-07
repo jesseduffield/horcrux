@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+
 	"github.com/jesseduffield/horcrux/pkg/commands"
 )
 
@@ -31,7 +32,7 @@ func main() {
 			usage()
 		}
 		path := os.Args[len(os.Args)-1]
-		if err := commands.Split(path); err != nil {
+		if err := commands.SplitWithPrompt(path); err != nil {
 			log.Fatal(err)
 		}
 		return

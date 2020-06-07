@@ -3,6 +3,7 @@ package commands
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,9 +17,16 @@ import (
 	"github.com/jesseduffield/horcrux/pkg/shamir"
 )
 
-func Split(path string) error {
+func SplitWithPrompt(path string) error {
 	total, threshold, err := obtainTotalAndThreshold()
+	if err != nil {
+		return err
+	}
 
+	return Split(path, path, total, threshold)
+}
+
+func Split(path string, destination string, total int, threshold int) error {
 	key, err := generateKey()
 	if err != nil {
 		return err
@@ -37,8 +45,22 @@ func Split(path string) error {
 	}
 	originalFilename := filepath.Base(path)
 
-	horcruxFiles := make([]*os.File, total)
+	// create destination directory if it does not already exist.
+	stat, err := os.Stat(destination)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(destination, os.ModePerm); err != nil {
+			return err
+		}
+	} else {
+		if !stat.IsDir() {
+			return errors.New("Destination must be a directory")
+		}
+	}
 
+	horcruxFiles := make([]*os.File, total)
 	for i := range horcruxFiles {
 		index := i + 1
 
@@ -56,12 +78,13 @@ func Split(path string) error {
 
 		originalFilenameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 		horcruxFilename := fmt.Sprintf("%s_%d_of_%d.horcrux", originalFilenameWithoutExt, index, total)
-		fmt.Printf("creating %s\n", horcruxFilename)
+		horcruxPath := filepath.Join(destination, horcruxFilename)
+		fmt.Printf("creating %s\n", horcruxPath)
 
 		// clearing file in case it already existed
-		_ = os.Truncate(horcruxFilename, 0)
+		_ = os.Truncate(horcruxPath, 0)
 
-		horcruxFile, err := os.OpenFile(horcruxFilename, os.O_WRONLY|os.O_CREATE, 0644)
+		horcruxFile, err := os.OpenFile(horcruxPath, os.O_WRONLY|os.O_CREATE, 0644)
 		if err != nil {
 			return err
 		}
