@@ -30,7 +30,7 @@ func fileExists(filename string) bool {
 	return !info.IsDir()
 }
 
-func prompt(message string, args ...interface{}) string {
+func Prompt(message string, args ...interface{}) string {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf(message, args...)
 	input, _ := reader.ReadString('\n')

@@ -64,7 +64,7 @@ func Split(path string, destination string, total int, threshold int) error {
 	for i := range horcruxFiles {
 		index := i + 1
 
-		headerBytes, err := json.Marshal(&horcruxHeader{
+		headerBytes, err := json.Marshal(&HorcruxHeader{
 			OriginalFilename: originalFilename,
 			Timestamp:        timestamp,
 			Index:            index,
@@ -90,7 +90,9 @@ func Split(path string, destination string, total int, threshold int) error {
 		}
 		defer horcruxFile.Close()
 
-		horcruxFile.WriteString(header(index, total, headerBytes))
+		if _, err := horcruxFile.WriteString(header(index, total, headerBytes)); err != nil {
+			return err
+		}
 
 		horcruxFiles[i] = horcruxFile
 	}
@@ -133,7 +135,7 @@ func obtainTotalAndThreshold() (int, int, error) {
 	threshold := *thresholdPtr
 
 	if total == 0 {
-		totalStr := prompt("How many horcruxes do you want to split this file into? (2-99): ")
+		totalStr := Prompt("How many horcruxes do you want to split this file into? (2-99): ")
 		var err error
 		total, err = strconv.Atoi(totalStr)
 		if err != nil {
@@ -142,7 +144,7 @@ func obtainTotalAndThreshold() (int, int, error) {
 	}
 
 	if threshold == 0 {
-		thresholdStr := prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (2-99): ")
+		thresholdStr := Prompt("How many horcruxes should be required to reconstitute the original file? If you require all horcruxes, the resulting files will take up less space, but it will feel less magical (2-99): ")
 		var err error
 		threshold, err = strconv.Atoi(thresholdStr)
 		if err != nil {

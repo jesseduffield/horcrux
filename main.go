@@ -21,9 +21,27 @@ func main() {
 		} else {
 			dir = os.Args[2]
 		}
-		if err := commands.Bind(dir); err != nil {
+		paths, err := commands.GetHorcruxPathsInDir(dir)
+		if err != nil {
 			log.Fatal(err)
 		}
+		overwrite := false
+		for {
+			if err := commands.Bind(paths, "", overwrite); err != nil {
+				if err != os.ErrExist {
+					log.Fatal(err)
+				}
+				overwriteResponse := commands.Prompt("A file already exists at destination. Overwrite? (Y/N):")
+				if overwriteResponse == "Y" || overwriteResponse == "y" || overwriteResponse == "yes" {
+					overwrite = true
+				} else {
+					log.Fatal("You have chosen not to overwrite the file. Cancelling.")
+				}
+			} else {
+				break
+			}
+		}
+
 		return
 	}
 
