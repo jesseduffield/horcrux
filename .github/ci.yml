@@ -1,0 +1,41 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request: []
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Setup Go
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.14.x
+      - name: Cache build
+        uses: actions/cache@v1
+        with:
+          path: ~/.cache/go-build
+          key: ${{runner.os}}-go-${{hashFiles('**/go.sum')}}
+          restore-keys: |
+            ${{runner.os}}-go-
+      - name: Format code
+        run: |
+          if [ $(find . ! -path "./vendor/*" -name "*.go" -exec gofmt -s -d {} \;|wc -l) -gt 0 ]; then
+           find . ! -path "./vendor/*" -name "*.go" -exec gofmt -s -d {} \;
+           exit 1
+          fi
+      # no tests for now
+      # - name: Test code
+      #   run: |
+      #     ./test.sh
+      - name: Build binaries
+        uses: goreleaser/goreleaser-action@v1
+        with:
+          args: --skip-publish --snapshot
