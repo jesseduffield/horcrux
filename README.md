@@ -52,9 +52,9 @@ A) It's pretty close! You can't allow any one horcrux to be used to resurrect th
 
 Q) How does this work?
 
-A) This uses the (Shamir Secret Sharing Scheme)[https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing] to break an encryption key into parts that can be recombined to create the original key, but only requiring a certain threshold to do so. I've adapted Hashicorp's implementation from their (vault repo)[https://github.com/hashicorp/vault]
+A) This uses the [Shamir Secret Sharing Scheme](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing) to break an encryption key into parts that can be recombined to create the original key, but only requiring a certain threshold to do so. I've adapted Hashicorp's implementation from their [vault repo](https://github.com/hashicorp/vault)
 
 ## Alternatives
 
-* (ssss)[http://point-at-infinity.org/ssss/]. Works for keys but (as far as I know) not files themselves.
-* horcrux[https://github.com/kndyry/horcrux]. Looks like somebody beat me to both the name and concept, however this repo doesn't support thresholds of horcruxes
+* [ssss](http://point-at-infinity.org/ssss/). Works for keys but (as far as I know) not files themselves.
+* [horcrux](https://github.com/kndyry/horcrux). Looks like somebody beat me to both the name and concept, however this repo doesn't support thresholds of horcruxes
