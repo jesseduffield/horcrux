@@ -15,16 +15,16 @@ builds:
       - 386
     # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}`.
 
-archive:
-  replacements:
-    darwin: Darwin
-    linux: Linux
-    windows: Windows
-    386: 32-bit
-    amd64: x86_64
-  format_overrides:
-    - goos: windows
-      format: zip
+archives:
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: 32-bit
+      amd64: x86_64
+    format_overrides:
+      - goos: windows
+        format: zip
 # checksum:
 #   name_template: 'checksums.txt'
 # snapshot:
@@ -36,27 +36,27 @@ changelog:
       - '^docs:'
       - '^test:'
       - '^bump'
-brew:
-  # Repository to push the tap to.
-  github:
-    owner: jesseduffield
-    name: homebrew-horcrux
+brews:
+  -
+    # Repository to push the tap to.
+    tap:
+      owner: jesseduffield
+      name: homebrew-horcrux
 
-  # Your app's homepage.
-  # Default is empty.
-  homepage: 'https://github.com/jesseduffield/horcrux/'
+    # Your app's homepage.
+    # Default is empty.
+    homepage: 'https://github.com/jesseduffield/horcrux/'
 
-  # Your app's description.
-  # Default is empty.
-  description: 'A program for splitting your files into encrypted fragments'
+    # Your app's description.
+    # Default is empty.
+    description: 'A program for splitting your files into encrypted fragments'
 
-  # # Packages your package depends on.
-  # dependencies:
-  #   - git
-  #   - zsh
-  # # Packages that conflict with your package.
-  # conflicts:
-  #   - svn
-  #   - bash
+    # # Packages your package depends on.
+    # dependencies:
+    #   - git
+    #   - zsh
+    # # Packages that conflict with your package.
+    # conflicts:
+    #   - svn
+    #   - bash
 
-# test comment to see if goreleaser only releases on new commits
