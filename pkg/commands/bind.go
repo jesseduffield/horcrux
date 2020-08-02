@@ -23,7 +23,8 @@ func GetHorcruxPathsInDir(dir string) ([]string, error) {
 	paths := []string{}
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".horcrux" {
-			paths = append(paths, file.Name())
+			path := filepath.Join(dir, file.Name())
+			paths = append(paths, path)
 		}
 	}
 
