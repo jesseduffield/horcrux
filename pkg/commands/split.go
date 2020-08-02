@@ -23,7 +23,7 @@ func SplitWithPrompt(path string) error {
 		return err
 	}
 
-	return Split(path, path, total, threshold)
+	return Split(path, filepath.Dir(path), total, threshold)
 }
 
 func Split(path string, destination string, total int, threshold int) error {
