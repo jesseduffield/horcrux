@@ -1,4 +1,5 @@
 // adapted from https://github.com/hashicorp/vault/blob/master/shamir/shamir.go
+// License is MPL-2: https://github.com/hashicorp/vault/blob/master/LICENSE
 
 package shamir
 
