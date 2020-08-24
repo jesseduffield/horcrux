@@ -58,3 +58,4 @@ A) This uses the [Shamir Secret Sharing Scheme](https://en.wikipedia.org/wiki/Sh
 
 * [ssss](http://point-at-infinity.org/ssss/). Works for keys but (as far as I know) not files themselves.
 * [horcrux](https://github.com/kndyry/horcrux). Looks like somebody beat me to both the name and concept, however this repo doesn't support thresholds of horcruxes
+* [Haystack](https://github.com/henrysdev/Haystack). Implements another file sharding and reassembly algorithm inspired by SSSS, but requires a password for reassembly and does not support thresholds of horcruxes.
