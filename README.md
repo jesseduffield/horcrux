@@ -38,6 +38,11 @@ via homebrew:
 brew install jesseduffield/horcrux/horcrux
 ```
 
+via [scoop](https://scoop.sh/):
+```
+scoop bucket add extras; scoop install horcrux
+```
+
 via [binary release](https://github.com/jesseduffield/horcrux/releases)
 
 ## Who this is for:
