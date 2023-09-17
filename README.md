@@ -40,6 +40,17 @@ brew install jesseduffield/horcrux/horcrux
 
 via [binary release](https://github.com/jesseduffield/horcrux/releases)
 
+Example to install the latest release on Linux to `/usr/local/bin` (needs [jq](https://stedolan.github.io/jq/)):
+
+```bash
+curl https://api.github.com/repos/jesseduffield/horcrux/releases/latest | \
+jq '.assets[] | select(.browser_download_url | endswith("_Linux_x86_64.tar.gz")) | .browser_download_url' | \
+xargs curl -Lo /tmp/horcrux.tar.gz && \
+tar xfz /tmp/horcrux.tar.gz -C /tmp && \
+rm /tmp/horcrux.tar.gz && \
+sudo mv /tmp/horcrux /usr/local/bin/horcrux
+```
+
 ## Who this is for:
 * People who need to encrypt a big sensitive file like a diary and don't expect to remember any passwords years from now (but who paradoxically will be capable of remembering where they've hidden their horcruxes)
 * People who want to transmit files across multiple channels to substantially reduce the ability for an attacker to intercept
