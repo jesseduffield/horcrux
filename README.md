@@ -65,6 +65,14 @@ Q) How does this work?
 
 A) This uses the [Shamir Secret Sharing Scheme](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing) to break an encryption key into parts that can be recombined to create the original key, but only requiring a certain threshold to do so. I've adapted Hashicorp's implementation from their [vault repo](https://github.com/hashicorp/vault)
 
+Q) How is the key generated
+
+A) Using the Go stdlib's crypto/rand `Read` function
+
+## You can help!
+
+I don't have much time to work on Horcrux but I'm happy to review PRs. One issue you may want to tackle is https://github.com/jesseduffield/horcrux/issues/4 which relates to data integrity.
+
 ## Alternatives
 
 * [ssss](http://point-at-infinity.org/ssss/). Works for keys but (as far as I know) not files themselves.
