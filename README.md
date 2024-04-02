@@ -83,6 +83,7 @@ I don't have much time to work on Horcrux but I'm happy to review PRs. One issue
 * [ssss](http://point-at-infinity.org/ssss/). Works for keys but (as far as I know) not files themselves.
 * [horcrux](https://github.com/kndyry/horcrux). Looks like somebody beat me to both the name and concept, however this repo doesn't support thresholds of horcruxes
 * [Haystack](https://github.com/henrysdev/Haystack). Implements another file sharding and reassembly algorithm inspired by SSSS, but requires a password for reassembly and does not support thresholds of horcruxes.
+* [krsp](https://github.com/lucasnuic/krsp): synchronization between a cloud service (google drive, one drive, etc) and a keePass database(and split KeePass.kdbx in cloud services for security, privacy). A creative work based on the concept of "BitTorrent", "Secret Circle", "horcrux" and "Shamir"(or pykeepass, py-rclone, tiny-db, and splitch *.py).
 
 ## Plugs
 
