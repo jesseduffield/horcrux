@@ -90,7 +90,7 @@ func Split(path string, destination string, total int, threshold int) error {
 		}
 		defer horcruxFile.Close()
 
-		if _, err := horcruxFile.WriteString(header(index, total, headerBytes)); err != nil {
+		if _, err := horcruxFile.WriteString(header(index, total, threshold, headerBytes)); err != nil {
 			return err
 		}
 
@@ -155,7 +155,7 @@ func obtainTotalAndThreshold() (int, int, error) {
 	return total, threshold, nil
 }
 
-func header(index int, total int, headerBytes []byte) string {
+func header(index int, total int, threshold int, headerBytes []byte) string {
 	return fmt.Sprintf(`# THIS FILE IS A HORCRUX.
 # IT IS ONE OF %d HORCRUXES THAT EACH CONTAIN PART OF AN ORIGINAL FILE.
 # THIS IS HORCRUX NUMBER %d.
@@ -165,7 +165,7 @@ func header(index int, total int, headerBytes []byte) string {
 -- HEADER --
 %s
 -- BODY --
-`, total, index, total-1, headerBytes)
+`, total, index, threshold, headerBytes)
 }
 
 func generateKey() ([]byte, error) {
